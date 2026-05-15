@@ -123,6 +123,29 @@ Headline 自动换 1-3 行，字号按 pill 宽度自适应。带自然分隔符
 
 > **为什么默认是 `medium` 而不是 `small`**：实测发现 mlx-whisper 的 small 模型偶尔会跑炸（一条 15 秒视频转录成 `' s s'` 这种废话）。脚本会在检测到 broken 时自动重试 medium，但既然总要走到 medium，默认就直接用它避免重试开销。
 
+## 云端兜底（可选，强烈建议）
+
+即使 `whisper-large-v3` 也偶尔会对某条音频完全炸（一条清晰的 15 秒口播识别成一个 `'!'`）。这种情况换 Whisper 其他档位也救不了（同一架构）。在 shell 里设 `DEEPGRAM_API_KEY` 就能启用自动云端兜底，调用 **Deepgram Nova-3**（完全不同的 ASR 架构，专治 Whisper 全家炸的 case）：
+
+```bash
+echo 'export DEEPGRAM_API_KEY="dg_..."' >> ~/.zshrc
+echo 'export DEEPGRAM_API_KEY="dg_..."' >> ~/.bash_profile
+source ~/.zshrc
+```
+
+[console.deepgram.com/signup](https://console.deepgram.com/signup) 免费注册即送 **$200 免费额度**（够 ~46000 分钟音频），**不需要绑信用卡**。
+
+兜底链路：
+
+```
+mlx-whisper-medium（默认）
+  └─ 炸了？ → mlx-whisper-large（仅在没设 DEEPGRAM_API_KEY 时）
+                └─ 还炸？ → Deepgram Nova-3（有 key 时跳过 local-large 直接调）
+                              └─ 还炸？ → 按音频时长均匀分布脚本
+```
+
+设了 key 后，本地 medium 失败会直接跳到 Deepgram（跳过 large，因为同架构很少能救回来）。每次云端调用成本：15 秒视频约 ¥0.007（$0.001）。
+
 ## 为什么用开源字体？
 
 视频商用分发意味着字体像素会被烧进每一帧。Mac 系统字体（Helvetica、Arial Black 等）**严格来讲**有再分发限制。我们打包了完全无许可证负担的替代品：

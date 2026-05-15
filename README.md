@@ -123,6 +123,29 @@ Without `--script-file`, accuracy is bounded by Whisper. With `--script-file`, a
 
 > **Why `medium` is the default instead of `small`**: we observed mlx-whisper's small model occasionally producing complete garbage (e.g. transcribing a 15-second clip as just `' s s'`). The script auto-retries with medium when that happens, but defaulting to medium avoids the retry penalty.
 
+## Cloud fallback (optional, recommended)
+
+Even `whisper-large-v3` occasionally fails completely on a clip — output like a single `'!'` token on 15 seconds of clearly audible speech. When this happens, retrying with another Whisper variant rarely helps (same architecture). Set `DEEPGRAM_API_KEY` in your shell to enable an automatic cloud fallback to **Deepgram Nova-3** (a different ASR architecture, much more robust on whatever broke Whisper):
+
+```bash
+echo 'export DEEPGRAM_API_KEY="dg_..."' >> ~/.zshrc
+echo 'export DEEPGRAM_API_KEY="dg_..."' >> ~/.bash_profile
+source ~/.zshrc
+```
+
+Get a free key + **$200 credit** (~46,000 minutes of audio) at [console.deepgram.com/signup](https://console.deepgram.com/signup) — no credit card required.
+
+Recovery chain:
+
+```
+mlx-whisper-medium (default)
+  └─ broken? → mlx-whisper-large (only if no DEEPGRAM_API_KEY)
+                └─ broken? → Deepgram Nova-3 (if key set, skipped local-large)
+                              └─ broken? → distribute script evenly across audio
+```
+
+When the key is set, the script skips local-large after medium fails (same architecture, rarely helps) and goes straight to Deepgram. Cost per fallback call: ~$0.001 for a 15-second clip.
+
 ## Why open-source fonts?
 
 Captioning videos for commercial distribution means embedding fonts into the rendered pixels. Mac system fonts (Helvetica, Arial Black, etc.) have license terms that *technically* restrict redistribution. We bundle replacements that are unambiguously commercial-OK:

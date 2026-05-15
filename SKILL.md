@@ -62,7 +62,11 @@ python3 ~/Desktop/Repos/AI_Skills/tiktok-karaoke-captions/caption.py video.mp4 \
 
 - macOS on Apple Silicon (mlx-whisper requirement)
 - `uv` installed (`brew install uv`) — only system dependency
-- ~700 MB disk for first-run downloads (whisper model + deps + static-ffmpeg)
+- ~1.8 GB disk for first-run downloads (whisper-medium model + deps + static-ffmpeg)
+
+## Optional: Deepgram cloud fallback
+
+When local Whisper completely fails on a clip (rare but happens — observed empty / single-token output), set `DEEPGRAM_API_KEY` in the env to enable an automatic fallback to Deepgram Nova-3 (different architecture, much more robust). Free $200 credit at https://console.deepgram.com/signup. Cost ~$0.001 per 15s clip.
 
 ## Bundled fonts (open-source, commercial OK)
 
