@@ -785,6 +785,11 @@ def main() -> int:
                     help="whisper model size (default: medium — more robust than "
                          "small; pass --model small for faster startup if you "
                          "don't mind the occasional retry)")
+    ap.add_argument("--prefer-local", action="store_true",
+                    help="even with DEEPGRAM_API_KEY set, try local mlx-whisper "
+                         "first and only use Deepgram as a fallback. By default, "
+                         "when the env var is set, Deepgram is tried first because "
+                         "it's faster (~2s vs ~10s) and more reliable.")
     ap.add_argument("--language", default="en",
                     help="audio language code (default: en)")
     ap.add_argument("--style", default=None,
@@ -834,80 +839,71 @@ def main() -> int:
         print("🎵 extracting audio...")
         extract_audio(video, tmp_wav)
 
-        print("🗣  transcribing...")
-        # NOTE: mlx-whisper strips chars after the first "." in --output-name,
-        # so the stem must not contain a dot. Use a hyphen separator.
-        whisper_json = transcribe_json(
-            tmp_wav, out_dir, f"{stem}-whisper",
-            args.model, args.language, bias,
-        )
-
-        # Sanity check Whisper output. mlx-whisper occasionally produces
-        # garbage (e.g. " s s" or just "!" on a normal 15s clip). Recovery
-        # chain (each step only runs if the previous step is still broken):
-        #   1. Auto-escalate small → medium locally (cheap, no cost)
-        #   2. If DEEPGRAM_API_KEY is set: try Deepgram Nova-3 (different
-        #      architecture from Whisper — actually helps when Whisper-
-        #      family models all fail on the same audio)
-        #   3. Else: escalate to local large (same arch as medium, rarely
-        #      helps when medium fails, but it's all we have without cloud)
         audio_dur = probe_audio_duration(tmp_wav)
         expected_words = len(bias.split()) if bias else None
-        words = flatten_whisper_words(whisper_json)
-        broken, reason = looks_broken(words, audio_dur, expected_words)
-        current_model = args.model
         has_deepgram = bool(os.environ.get("DEEPGRAM_API_KEY"))
 
-        # Step 1: escalate small → medium locally
-        if broken and current_model in ("tiny", "base", "small"):
-            print(f"⚠️  {current_model} model output looks broken — {reason}")
-            print(f"   auto-retrying with `medium` model...")
-            whisper_json = transcribe_json(
-                tmp_wav, out_dir, f"{stem}-whisper",
-                "medium", args.language, bias,
-            )
-            words = flatten_whisper_words(whisper_json)
-            broken, reason = looks_broken(words, audio_dur, expected_words)
-            current_model = "medium"
+        # Build the recovery chain. Each entry is (label, callable returning
+        # (words, whisper_json_dict)). We iterate until one returns non-broken
+        # output, OR we exhaust everything and fall through to even-distribute.
+        #
+        # When DEEPGRAM_API_KEY is set, Deepgram goes FIRST by default because
+        # it's empirically faster (~2s vs ~10s) and more accurate than local
+        # mlx-whisper. Use --prefer-local to flip this to "local first, cloud
+        # fallback" (the previous default).
+        def _local(model: str):
+            def _run():
+                # mlx-whisper strips chars after the first "." in --output-name
+                # → use a hyphen-separated stem
+                wj = transcribe_json(tmp_wav, out_dir, f"{stem}-whisper",
+                                     model, args.language, bias)
+                return flatten_whisper_words(wj), wj
+            return _run
 
-        # Step 2: try Deepgram (different architecture) before local-large
-        cloud_tried = False
-        if broken and has_deepgram:
-            print(f"⚠️  local {current_model} broken — {reason}")
-            print(f"   trying Deepgram Nova-3 (cloud, different architecture)...")
-            cloud_tried = True
-            cloud_words = transcribe_via_deepgram(tmp_wav, args.language)
-            if cloud_words:
-                cloud_broken, cloud_reason = looks_broken(
-                    cloud_words, audio_dur, expected_words)
-                if not cloud_broken:
-                    words = cloud_words
-                    whisper_json = wrap_words_as_whisper_json(cloud_words)
-                    broken = False
-                    print(f"   ✅ Deepgram: {len(words)} words")
-                else:
-                    print(f"   Deepgram also broken — {cloud_reason}")
-            else:
-                print(f"   Deepgram returned no usable words")
+        def _cloud():
+            cw = transcribe_via_deepgram(tmp_wav, args.language)
+            return cw, wrap_words_as_whisper_json(cw)
 
-        # Step 3: if no cloud (or cloud failed), try local large as last gasp
-        if broken and current_model != "large":
-            print(f"⚠️  retrying with local `large` model (last resort)...")
-            whisper_json = transcribe_json(
-                tmp_wav, out_dir, f"{stem}-whisper",
-                "large", args.language, bias,
-            )
-            words = flatten_whisper_words(whisper_json)
+        chain: list[tuple[str, callable]] = []
+        if has_deepgram and not args.prefer_local:
+            chain.append(("Deepgram Nova-3 (cloud)", _cloud))
+            chain.append((f"local Whisper medium", _local("medium")))
+            chain.append((f"local Whisper large", _local("large")))
+        else:
+            chain.append((f"local Whisper {args.model}", _local(args.model)))
+            if args.model in ("tiny", "base", "small"):
+                chain.append(("local Whisper medium", _local("medium")))
+            if has_deepgram:  # --prefer-local set: cloud as mid-step fallback
+                chain.append(("Deepgram Nova-3 (cloud)", _cloud))
+            if args.model != "large" and "large" not in (c[0] for c in chain):
+                chain.append(("local Whisper large", _local("large")))
+
+        print(f"🗣  transcribing...")
+        words: list[dict] = []
+        whisper_json: dict = {"segments": []}
+        broken, reason = True, "no backend run yet"
+        tried_labels: list[str] = []
+        for label, runner in chain:
+            print(f"   → {label}")
+            tried_labels.append(label)
+            try:
+                words, whisper_json = runner()
+            except Exception as e:
+                print(f"     {label} raised: {e}")
+                continue
             broken, reason = looks_broken(words, audio_dur, expected_words)
-            current_model = "large"
+            if not broken:
+                print(f"     ✅ {len(words)} words")
+                break
+            print(f"     ⚠️  broken — {reason}")
 
         if broken:
-            tried = "medium → " + ("Deepgram → " if cloud_tried else "") + "large"
-            print(f"⚠️  every backend produced broken output ({tried}) — {reason}")
-            if not has_deepgram and not cloud_tried:
+            print(f"⚠️  every backend tried ({' → '.join(tried_labels)}) "
+                  f"produced broken output")
+            if not has_deepgram:
                 print(f"   tip: set DEEPGRAM_API_KEY env var to enable cloud fallback")
                 print(f"        (free $200 credit at https://console.deepgram.com/signup)")
-            print(f"   falling back to script timing distributed across {audio_dur:.1f}s audio")
+            print(f"   falling back to even script timing across {audio_dur:.1f}s audio")
 
         if bias:
             script_segs = parse_script_segments(bias, args.max_chars_per_line)

@@ -64,9 +64,9 @@ python3 ~/Desktop/Repos/AI_Skills/tiktok-karaoke-captions/caption.py video.mp4 \
 - `uv` installed (`brew install uv`) — only system dependency
 - ~1.8 GB disk for first-run downloads (whisper-medium model + deps + static-ffmpeg)
 
-## Optional: Deepgram cloud fallback
+## Optional: Deepgram cloud (faster + more reliable than local)
 
-When local Whisper completely fails on a clip (rare but happens — observed empty / single-token output), set `DEEPGRAM_API_KEY` in the env to enable an automatic fallback to Deepgram Nova-3 (different architecture, much more robust). Free $200 credit at https://console.deepgram.com/signup. Cost ~$0.001 per 15s clip.
+Set `DEEPGRAM_API_KEY` env var to enable Deepgram Nova-3 — when the key is set, **it becomes the default primary backend** (faster: ~2s vs ~10s, and more reliable than local mlx-whisper). Local Whisper is used as the fallback when Deepgram fails. Pass `--prefer-local` to flip this back to local-first. Free $200 credit at https://console.deepgram.com/signup. Cost ~$0.001 per 15s clip.
 
 ## Bundled fonts (open-source, commercial OK)
 

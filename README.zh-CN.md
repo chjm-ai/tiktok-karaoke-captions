@@ -94,6 +94,7 @@ Headline 自动换 1-3 行，字号按 pill 宽度自适应。带自然分隔符
 | `--caption-mode` | `tiktok` | `tiktok` 或 `classic` |
 | `--max-words-per-chunk N` | 3 | 卡拉 OK 模式每屏最多几个词 |
 | `--no-uppercase` | 关 | 保留原大小写，不强制全大写 |
+| `--prefer-local` | 关 | 即使设了 `DEEPGRAM_API_KEY` 也优先用本地 Whisper |
 | `--max-chars-per-line N` | 42 | 切句时单段字符上限 |
 | `--model` | `medium` | `tiny`/`base`/`small`/`medium`/`large` |
 | `--language` | `en` | Whisper 语言代码 |
@@ -123,9 +124,9 @@ Headline 自动换 1-3 行，字号按 pill 宽度自适应。带自然分隔符
 
 > **为什么默认是 `medium` 而不是 `small`**：实测发现 mlx-whisper 的 small 模型偶尔会跑炸（一条 15 秒视频转录成 `' s s'` 这种废话）。脚本会在检测到 broken 时自动重试 medium，但既然总要走到 medium，默认就直接用它避免重试开销。
 
-## 云端兜底（可选，强烈建议）
+## 可选：Deepgram 云端（比本地更快更准）
 
-即使 `whisper-large-v3` 也偶尔会对某条音频完全炸（一条清晰的 15 秒口播识别成一个 `'!'`）。这种情况换 Whisper 其他档位也救不了（同一架构）。在 shell 里设 `DEEPGRAM_API_KEY` 就能启用自动云端兜底，调用 **Deepgram Nova-3**（完全不同的 ASR 架构，专治 Whisper 全家炸的 case）：
+本地 `mlx-whisper` 偶尔会对某条音频完全炸（一条清晰的 15 秒口播识别成一个 `'!'`）。换 Whisper 其他档位也救不了（同一架构）。设 `DEEPGRAM_API_KEY` 启用 **Deepgram Nova-3**（完全不同的 ASR 架构）：
 
 ```bash
 echo 'export DEEPGRAM_API_KEY="dg_..."' >> ~/.zshrc
@@ -135,16 +136,18 @@ source ~/.zshrc
 
 [console.deepgram.com/signup](https://console.deepgram.com/signup) 免费注册即送 **$200 免费额度**（够 ~46000 分钟音频），**不需要绑信用卡**。
 
-兜底链路：
+**设了 key 之后 Deepgram 成为默认链路**，因为它更快（~2 秒 vs 本地 ~10 秒）且更准。每次调用成本约 ¥0.007（$0.001）— 跑 1000 条视频只要 $1。想用本地优先就加 `--prefer-local`。
+
+设了 key 后的链路（默认）：
 
 ```
-mlx-whisper-medium（默认）
-  └─ 炸了？ → mlx-whisper-large（仅在没设 DEEPGRAM_API_KEY 时）
-                └─ 还炸？ → Deepgram Nova-3（有 key 时跳过 local-large 直接调）
+Deepgram Nova-3（云端）
+  └─ 炸了？ → mlx-whisper-medium（本地兜底）
+                └─ 还炸？ → mlx-whisper-large
                               └─ 还炸？ → 按音频时长均匀分布脚本
 ```
 
-设了 key 后，本地 medium 失败会直接跳到 Deepgram（跳过 large，因为同架构很少能救回来）。每次云端调用成本：15 秒视频约 ¥0.007（$0.001）。
+没设 key 时链路是纯本地的（`medium → large → 均匀分布`）。
 
 ## 为什么用开源字体？
 

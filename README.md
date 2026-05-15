@@ -94,6 +94,7 @@ The headline auto-wraps onto 1–3 lines and auto-fits its font size to the pill
 | `--caption-mode` | `tiktok` | `tiktok` or `classic` |
 | `--max-words-per-chunk N` | 3 | Words per karaoke chunk |
 | `--no-uppercase` | off | Keep original casing in karaoke |
+| `--prefer-local` | off | Use local Whisper first even when `DEEPGRAM_API_KEY` is set |
 | `--max-chars-per-line N` | 42 | Soft cap for sentence-split |
 | `--model` | `medium` | `tiny`/`base`/`small`/`medium`/`large` |
 | `--language` | `en` | Whisper language code |
@@ -123,9 +124,9 @@ Without `--script-file`, accuracy is bounded by Whisper. With `--script-file`, a
 
 > **Why `medium` is the default instead of `small`**: we observed mlx-whisper's small model occasionally producing complete garbage (e.g. transcribing a 15-second clip as just `' s s'`). The script auto-retries with medium when that happens, but defaulting to medium avoids the retry penalty.
 
-## Cloud fallback (optional, recommended)
+## Optional: Deepgram cloud (faster + more reliable than local)
 
-Even `whisper-large-v3` occasionally fails completely on a clip — output like a single `'!'` token on 15 seconds of clearly audible speech. When this happens, retrying with another Whisper variant rarely helps (same architecture). Set `DEEPGRAM_API_KEY` in your shell to enable an automatic cloud fallback to **Deepgram Nova-3** (a different ASR architecture, much more robust on whatever broke Whisper):
+Local `mlx-whisper` occasionally fails completely on a clip — output like a single `'!'` token on 15 seconds of clearly audible speech. When this happens, retrying with another Whisper variant rarely helps (same architecture). Set `DEEPGRAM_API_KEY` in your shell to enable **Deepgram Nova-3** (a different ASR architecture):
 
 ```bash
 echo 'export DEEPGRAM_API_KEY="dg_..."' >> ~/.zshrc
@@ -135,16 +136,18 @@ source ~/.zshrc
 
 Get a free key + **$200 credit** (~46,000 minutes of audio) at [console.deepgram.com/signup](https://console.deepgram.com/signup) — no credit card required.
 
-Recovery chain:
+**With the key set, Deepgram is used by default** because it's faster (~2s vs ~10s) and more accurate. Cost is ~$0.001 per 15-second clip — for a batch of 1,000 videos that's $1. Pass `--prefer-local` to flip back to local-first.
+
+Recovery chain when the key is set (default):
 
 ```
-mlx-whisper-medium (default)
-  └─ broken? → mlx-whisper-large (only if no DEEPGRAM_API_KEY)
-                └─ broken? → Deepgram Nova-3 (if key set, skipped local-large)
+Deepgram Nova-3 (cloud)
+  └─ broken? → mlx-whisper-medium (local fallback)
+                └─ broken? → mlx-whisper-large
                               └─ broken? → distribute script evenly across audio
 ```
 
-When the key is set, the script skips local-large after medium fails (same architecture, rarely helps) and goes straight to Deepgram. Cost per fallback call: ~$0.001 for a 15-second clip.
+Without the key, the chain is local-only (`medium → large → even-distribute`).
 
 ## Why open-source fonts?
 
