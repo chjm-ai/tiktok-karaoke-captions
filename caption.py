@@ -26,9 +26,9 @@ Requires:
   - macOS on Apple Silicon (mlx-whisper is M-series only)
   - uv  (`brew install uv`) — the only system dependency
 
-First run downloads (cached forever after, ~700 MB total):
-  - mlx-whisper Python deps
-  - whisper-small model (~480 MB)
+First run downloads (cached forever after, ~1.8 GB total):
+  - mlx-whisper Python deps (~200 MB)
+  - whisper-medium model (~1.5 GB) — default; small (~480 MB) via --model small
   - static-ffmpeg (~60 MB) — only if your system ffmpeg lacks libass
 
 Output (alongside the input video, or in --out-dir):
@@ -703,9 +703,11 @@ def main() -> int:
                     help="tiktok: keep original casing instead of forcing ALL CAPS")
     ap.add_argument("--max-chars-per-line", type=int, default=42,
                     help="when splitting script: soft cap per segment (default 42)")
-    ap.add_argument("--model", default="small",
+    ap.add_argument("--model", default="medium",
                     choices=list(MODEL_MAP.keys()),
-                    help="whisper model size (default: small)")
+                    help="whisper model size (default: medium — more robust than "
+                         "small; pass --model small for faster startup if you "
+                         "don't mind the occasional retry)")
     ap.add_argument("--language", default="en",
                     help="audio language code (default: en)")
     ap.add_argument("--style", default=None,

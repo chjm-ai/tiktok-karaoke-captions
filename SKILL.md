@@ -35,7 +35,7 @@ python3 ~/Desktop/Repos/AI_Skills/tiktok-karaoke-captions/caption.py video.mp4 \
 --caption-mode classic        # static line-level SRT instead of karaoke
 --max-words-per-chunk 4       # 1–4 words per chunk (default 3)
 --no-uppercase                # keep original casing
---model medium                # better accuracy, slower (1.5 GB model)
+--model small                 # lighter model (480 MB vs default medium 1.5 GB)
 --language zh                 # Chinese audio
 --srt-only                    # just generate SRT/ASS, no burn-in
 --out-dir ./output            # custom output dir
@@ -51,7 +51,7 @@ python3 ~/Desktop/Repos/AI_Skills/tiktok-karaoke-captions/caption.py video.mp4 \
 ## Mechanism
 
 1. **Audio extract**: ffmpeg → 16 kHz mono WAV
-2. **Transcribe**: `uvx --from mlx-whisper mlx_whisper` (Apple Silicon native, ~5 sec for 15s video at small model after warmup)
+2. **Transcribe**: `uvx --from mlx-whisper mlx_whisper` (Apple Silicon native, ~10 sec for 15s video at medium model after warmup; auto-retries with bigger model if output looks broken)
 3. **Align**: if `--script-file` given, `difflib.SequenceMatcher` maps each script word → Whisper word timestamp (forced alignment, zero typos)
 4. **Chunk**: split into 1–3 word chunks at sentence/comma boundaries
 5. **ASS karaoke**: each chunk → N events, current word highlighted yellow via `{\c&H0000FFFF&}…{\c}` inline tags

@@ -41,7 +41,7 @@ git clone https://github.com/chjm-ai/tiktok-karaoke-captions.git
 cd tiktok-karaoke-captions
 ```
 
-That's it. The first run downloads the Whisper model and other deps automatically and caches them forever after (~700 MB total).
+That's it. The first run downloads the Whisper model and other deps automatically and caches them forever after (~1.8 GB total — `medium` model is the default for robustness; pass `--model small` to use the lighter 480 MB model).
 
 ## Usage
 
@@ -51,7 +51,7 @@ That's it. The first run downloads the Whisper model and other deps automaticall
 python3 caption.py my_video.mp4
 ```
 
-Uses `whisper-small` to transcribe and emit karaoke captions. Output lands beside the input video as `my_video-captioned.mp4`.
+Uses `whisper-medium` (the default) to transcribe and emit karaoke captions. Output lands beside the input video as `my_video-captioned.mp4`.
 
 ### 2. Script-aligned (recommended — zero typos)
 
@@ -95,7 +95,7 @@ The headline auto-wraps onto 1–3 lines and auto-fits its font size to the pill
 | `--max-words-per-chunk N` | 3 | Words per karaoke chunk |
 | `--no-uppercase` | off | Keep original casing in karaoke |
 | `--max-chars-per-line N` | 42 | Soft cap for sentence-split |
-| `--model` | `small` | `tiny`/`base`/`small`/`medium`/`large` |
+| `--model` | `medium` | `tiny`/`base`/`small`/`medium`/`large` |
 | `--language` | `en` | Whisper language code |
 | `--out-dir DIR` | input dir | Where to write outputs |
 | `--out-name NAME` | `<stem>-captioned.mp4` | Output video filename |
@@ -115,10 +115,13 @@ Files written to `--out-dir` (default = same dir as input video):
 | Model | First run | Subsequent runs (15-sec video) | Quality |
 |---|---|---|---|
 | tiny | ~2 min download + 5 sec | ~3 sec | Many typos |
-| **small** | ~3 min download + 5 sec | **~5 sec** | Recommended |
-| medium | ~6 min download + 10 sec | ~10 sec | Near-perfect for English |
+| small | ~3 min download + 5 sec | ~5 sec | Occasional garbage output on some clips |
+| **medium** | ~6 min download + 10 sec | **~10 sec** | Default — robust, near-perfect for English |
+| large | ~15 min download + 20 sec | ~20 sec | Best, slowest |
 
 Without `--script-file`, accuracy is bounded by Whisper. With `--script-file`, accuracy is 100% (text comes from your script).
+
+> **Why `medium` is the default instead of `small`**: we observed mlx-whisper's small model occasionally producing complete garbage (e.g. transcribing a 15-second clip as just `' s s'`). The script auto-retries with medium when that happens, but defaulting to medium avoids the retry penalty.
 
 ## Why open-source fonts?
 

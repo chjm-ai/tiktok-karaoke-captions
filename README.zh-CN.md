@@ -41,7 +41,7 @@ git clone https://github.com/chjm-ai/tiktok-karaoke-captions.git
 cd tiktok-karaoke-captions
 ```
 
-完事。首次运行会自动下载 Whisper 模型和依赖（共 ~700MB），之后永久缓存。
+完事。首次运行会自动下载 Whisper 模型和依赖（共 ~1.8GB — 默认用更稳的 `medium` 模型；想省空间可以加 `--model small` 用 480MB 的版本）。
 
 ## 用法
 
@@ -51,7 +51,7 @@ cd tiktok-karaoke-captions
 python3 caption.py my_video.mp4
 ```
 
-用 `whisper-small` 自动转录并出卡拉 OK 字幕。输出落在原视频旁边，叫 `my_video-captioned.mp4`。
+用 `whisper-medium`（默认）自动转录并出卡拉 OK 字幕。输出落在原视频旁边，叫 `my_video-captioned.mp4`。
 
 ### 2. 原稿对齐（推荐 — 零错字）
 
@@ -95,7 +95,7 @@ Headline 自动换 1-3 行，字号按 pill 宽度自适应。带自然分隔符
 | `--max-words-per-chunk N` | 3 | 卡拉 OK 模式每屏最多几个词 |
 | `--no-uppercase` | 关 | 保留原大小写，不强制全大写 |
 | `--max-chars-per-line N` | 42 | 切句时单段字符上限 |
-| `--model` | `small` | `tiny`/`base`/`small`/`medium`/`large` |
+| `--model` | `medium` | `tiny`/`base`/`small`/`medium`/`large` |
 | `--language` | `en` | Whisper 语言代码 |
 | `--out-dir DIR` | 输入视频所在目录 | 输出目录 |
 | `--out-name NAME` | `<stem>-captioned.mp4` | 输出视频文件名 |
@@ -115,10 +115,13 @@ Headline 自动换 1-3 行，字号按 pill 宽度自适应。带自然分隔符
 | 模型 | 首次跑 | 后续（15 秒视频） | 准确率 |
 |---|---|---|---|
 | tiny | 下载 ~2 分钟 + 5 秒 | ~3 秒 | 错字多 |
-| **small** | 下载 ~3 分钟 + 5 秒 | **~5 秒** | 推荐 |
-| medium | 下载 ~6 分钟 + 10 秒 | ~10 秒 | 英文近乎完美 |
+| small | 下载 ~3 分钟 + 5 秒 | ~5 秒 | 偶发整段乱码（mlx 实测会跑炸） |
+| **medium** | 下载 ~6 分钟 + 10 秒 | **~10 秒** | 默认值 — 稳健、英文近乎完美 |
+| large | 下载 ~15 分钟 + 20 秒 | ~20 秒 | 最准最慢 |
 
 没有 `--script-file` 时准确率受限于 Whisper；有 `--script-file` 时准确率 100%（文字直接来自脚本）。
+
+> **为什么默认是 `medium` 而不是 `small`**：实测发现 mlx-whisper 的 small 模型偶尔会跑炸（一条 15 秒视频转录成 `' s s'` 这种废话）。脚本会在检测到 broken 时自动重试 medium，但既然总要走到 medium，默认就直接用它避免重试开销。
 
 ## 为什么用开源字体？
 
