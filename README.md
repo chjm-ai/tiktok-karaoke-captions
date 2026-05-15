@@ -2,8 +2,13 @@
 
 Burn TikTok-style karaoke captions and a persistent headline banner into any local video, fully offline on macOS Apple Silicon.
 
+<p align="center">
+  <img src="docs/preview.png" alt="Captioned video preview — top pill banner 'VIETNAM BUYER / FIRST VISIT' + bottom karaoke caption 'GOT IT.' with 'IT.' highlighted in yellow" width="320">
+</p>
+
 - **Per-word yellow highlight** as words are spoken — the signature TikTok karaoke effect
 - **Forced-alignment from a script file** when you have one — text comes from your script verbatim, timing comes from Whisper (zero typos)
+- **Persistent top headline banner** — bold Archivo Black on a semi-transparent pill, auto-wraps and auto-fits
 - **Bundled open-source fonts** (Roboto Black, Archivo Black) — works on any machine, commercial-use safe
 - **One-pass ffmpeg burn** — no separate `.srt`/`.mp4` mux step
 
