@@ -136,6 +136,15 @@ def probe_dimensions(video: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def probe_audio_duration(media: Path) -> float:
+    res = subprocess.run(
+        [ffprobe_bin(), "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(media)],
+        capture_output=True, text=True, check=True,
+    )
+    return float(res.stdout.strip())
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Whisper transcription
 # ────────────────────────────────────────────────────────────────────────────
@@ -201,6 +210,29 @@ def flatten_whisper_words(whisper_json: dict) -> list[dict]:
                               "start": float(w["start"]),
                               "end": float(w["end"])})
     return _clamp_word_durations(words)
+
+
+def looks_broken(words: list[dict], audio_duration: float,
+                 expected_word_count: int | None) -> tuple[bool, str]:
+    """Heuristic: did Whisper produce a broken transcription?
+
+    Returns (is_broken, reason). mlx-whisper occasionally outputs only a few
+    garbage tokens (e.g. ' s s' on a perfectly normal 15-second clip). When
+    that happens we want to auto-retry with a beefier model rather than emit
+    captions misaligned with the audio.
+    """
+    if not words:
+        return True, "Whisper produced 0 words"
+    total_chars = sum(len(normalize_word(w["text"])) for w in words)
+    # Very low bar: 1.5 real chars per second of audio. Normal speech is ~10.
+    min_chars = 1.5 * audio_duration
+    if total_chars < min_chars:
+        return True, (f"only {total_chars} real chars in {audio_duration:.1f}s "
+                      f"audio (expected ≥ {min_chars:.0f})")
+    if expected_word_count and len(words) < 0.3 * expected_word_count:
+        return True, (f"only {len(words)} words transcribed vs "
+                      f"{expected_word_count} in script (< 30% recall)")
+    return False, ""
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -337,16 +369,21 @@ def align_script_to_whisper(script_segs: list[str],
     for k, (seg_i, _) in enumerate(script_flat):
         seg_to_idxs[seg_i].append(k)
 
+    # If Whisper completely failed (no anchors at all), don't skip every
+    # segment — fall back to using the interpolated (evenly-distributed)
+    # timing for the WHOLE script. Captions won't sync perfectly to audio
+    # but at least the user sees something instead of a blank video.
+    fully_unmatched = (len(script_to_whisper) == 0)
+
     out, last_end = [], 0.0
     skipped_segs: list[str] = []
     for seg_idx, seg_text in enumerate(script_segs):
         idxs = seg_to_idxs[seg_idx]
         n_matched = sum(1 for k in idxs if k in script_to_whisper)
-        # Skip segments where Whisper didn't actually hear ANY of the words.
-        # This happens when the rendered video missed part of the script
-        # (e.g. video model only animated some sentences) — emitting captions
-        # for unspoken text would create fast-then-slow drift.
-        if n_matched == 0:
+        # Skip segments Whisper missed — UNLESS Whisper missed everything,
+        # in which case we trust the script and distribute it evenly across
+        # the audio duration (computed earlier via tail-fill interpolation).
+        if n_matched == 0 and not fully_unmatched:
             skipped_segs.append(seg_text)
             out.append({"text": seg_text, "start": 0, "end": 0,
                         "words": [], "skipped": True})
@@ -362,7 +399,10 @@ def align_script_to_whisper(script_segs: list[str],
         out.append({"text": seg_text, "start": words[0]["start"],
                     "end": words[-1]["end"], "words": words})
 
-    if skipped_segs:
+    if fully_unmatched:
+        print(f"⚠️  Whisper heard NO recognizable words — captions are "
+              f"distributed evenly across audio (timing won't match speech)")
+    elif skipped_segs:
         print(f"⚠️  {len(skipped_segs)} script segment(s) not heard in audio — skipped:")
         for s in skipped_segs:
             print(f"     · {s}")
@@ -723,8 +763,27 @@ def main() -> int:
             args.model, args.language, bias,
         )
 
-        if bias:
+        # Sanity check Whisper output. mlx-whisper occasionally produces
+        # garbage (e.g. just " s s" on a normal 15s clip). When detected,
+        # auto-retry with the medium model — empirically much more robust.
+        audio_dur = probe_audio_duration(tmp_wav)
+        expected_words = len(bias.split()) if bias else None
+        words = flatten_whisper_words(whisper_json)
+        broken, reason = looks_broken(words, audio_dur, expected_words)
+        if broken and args.model in ("tiny", "base", "small"):
+            print(f"⚠️  {args.model} model output looks broken — {reason}")
+            print(f"   auto-retrying with `medium` model (1.5 GB first download)...")
+            whisper_json = transcribe_json(
+                tmp_wav, out_dir, f"{stem}-whisper",
+                "medium", args.language, bias,
+            )
             words = flatten_whisper_words(whisper_json)
+            broken, reason = looks_broken(words, audio_dur, expected_words)
+            if broken:
+                print(f"⚠️  medium model also broken — {reason}")
+                print(f"   captions may be off; consider re-running with --model large")
+
+        if bias:
             script_segs = parse_script_segments(bias, args.max_chars_per_line)
             print(f"   aligned: {len(script_segs)} segments ↔ {len(words)} whisper words")
             segments = align_script_to_whisper(script_segs, words)
