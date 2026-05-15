@@ -308,12 +308,18 @@ def parse_script_segments(script_text: str, max_chars: int = 42) -> list[str]:
 
 
 def align_script_to_whisper(script_segs: list[str],
-                            whisper_words: list[dict]) -> list[dict]:
+                            whisper_words: list[dict],
+                            audio_duration: float | None = None) -> list[dict]:
     """Use difflib to map each script word -> whisper word timestamp.
 
     Returns list of {text, start, end, words: [{text, start, end}]}
     aligned with `script_segs`. Per-word timings come from Whisper anchors;
     unmatched words get linearly interpolated timing.
+
+    `audio_duration` (from ffprobe) is used as the upper bound for tail
+    interpolation. Without it, we fall back to Whisper's last word end —
+    which is wrong when Whisper failed and only emitted garbage at t=1s
+    while the real audio is 15s long.
     """
     script_flat: list[tuple[int, str]] = []
     for i, seg in enumerate(script_segs):
@@ -330,7 +336,12 @@ def align_script_to_whisper(script_segs: list[str],
             for k in range(i2 - i1):
                 script_to_whisper[i1 + k] = j1 + k
 
-    audio_end = whisper_words[-1]["end"] if whisper_words else 0.0
+    # Use real audio duration if available — Whisper's last word end can
+    # be wildly wrong when the model failed (e.g. emitted just '!' at 1.5s
+    # on a 15s clip). Falling back to that bad value crammed all captions
+    # into the first 1.5 seconds.
+    whisper_end = whisper_words[-1]["end"] if whisper_words else 0.0
+    audio_end = max(audio_duration or 0.0, whisper_end)
     n_script = len(script_flat)
 
     # Forward-fill missing timings via linear interpolation
@@ -766,29 +777,36 @@ def main() -> int:
         )
 
         # Sanity check Whisper output. mlx-whisper occasionally produces
-        # garbage (e.g. just " s s" on a normal 15s clip). When detected,
-        # auto-retry with the medium model — empirically much more robust.
+        # garbage (e.g. " s s" or just "!" on a normal 15s clip). Auto-
+        # escalate to a bigger model when detected — empirically much more
+        # robust at the cost of slower first-run download.
         audio_dur = probe_audio_duration(tmp_wav)
         expected_words = len(bias.split()) if bias else None
         words = flatten_whisper_words(whisper_json)
         broken, reason = looks_broken(words, audio_dur, expected_words)
-        if broken and args.model in ("tiny", "base", "small"):
-            print(f"⚠️  {args.model} model output looks broken — {reason}")
-            print(f"   auto-retrying with `medium` model (1.5 GB first download)...")
+
+        ESCALATION = {"tiny": "medium", "base": "medium", "small": "medium",
+                      "medium": "large"}
+        current_model = args.model
+        while broken and current_model in ESCALATION:
+            next_model = ESCALATION[current_model]
+            print(f"⚠️  {current_model} model output looks broken — {reason}")
+            print(f"   auto-retrying with `{next_model}` model...")
             whisper_json = transcribe_json(
                 tmp_wav, out_dir, f"{stem}-whisper",
-                "medium", args.language, bias,
+                next_model, args.language, bias,
             )
             words = flatten_whisper_words(whisper_json)
             broken, reason = looks_broken(words, audio_dur, expected_words)
-            if broken:
-                print(f"⚠️  medium model also broken — {reason}")
-                print(f"   captions may be off; consider re-running with --model large")
+            current_model = next_model
+        if broken:
+            print(f"⚠️  even {current_model} produced broken output — {reason}")
+            print(f"   falling back to script timing distributed across {audio_dur:.1f}s audio")
 
         if bias:
             script_segs = parse_script_segments(bias, args.max_chars_per_line)
             print(f"   aligned: {len(script_segs)} segments ↔ {len(words)} whisper words")
-            segments = align_script_to_whisper(script_segs, words)
+            segments = align_script_to_whisper(script_segs, words, audio_dur)
         else:
             segments = segments_from_raw_whisper(whisper_json)
             print(f"   raw segments: {len(segments)}")
