@@ -1,5 +1,7 @@
 # tiktok-karaoke-captions
 
+**English** · [中文](README.zh-CN.md)
+
 Burn TikTok-style karaoke captions and a persistent headline banner into any local video, fully offline on macOS Apple Silicon.
 
 <p align="center">
