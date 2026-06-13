@@ -1,0 +1,71 @@
+{
+  "skill": "tiktok-karaoke-captions",
+  "description": "触发路由 + 能力评测：正例应加载本 skill 用 caption.py 给本地视频烧 TikTok 卡拉OK字幕 / headline；并命中 Gotchas（中文必加 --language zh、字幕避让人脸、缺 libass 回退）。near-miss 负例不应加载（交给括号内 skill 或直接处理）。",
+  "positives": [
+    {
+      "query": "帮我给这个 video.mp4 加 TikTok 风格的卡拉OK字幕",
+      "reason": "本地视频烧逐词高亮字幕，本 skill 核心场景",
+      "expectations": [
+        "调 caption.py 而非自己写 ffmpeg drawtext"
+      ]
+    },
+    {
+      "query": "给这条中文口播视频加字幕",
+      "reason": "中文音频，命中 --language gotcha",
+      "expectations": [
+        "必须传 --language zh，否则 Whisper 默认 en 会把中文转成英文乱码"
+      ]
+    },
+    {
+      "query": "我有视频和脚本原文，帮我烧字幕要零错字，顶部再加个 headline",
+      "reason": "tier 2/3：脚本对齐 + headline",
+      "expectations": [
+        "用 --script-file 走 difflib forced alignment 拿零错字",
+        "用 --headline 加顶部横幅"
+      ]
+    },
+    {
+      "query": "这个竖屏视频说话人脸在下半部分，字幕别压到脸上",
+      "reason": "命中字幕避让人脸 gotcha（默认 MarginV=70 底部固定）",
+      "expectations": [
+        "提示默认字幕固定底部不避让人脸，建议抬高 MarginV / 用 classic --style 调位置"
+      ]
+    },
+    {
+      "query": "burn word-by-word highlighted subtitles into this clip",
+      "reason": "英文卡拉OK字幕烧入，标准场景"
+    }
+  ],
+  "near_misses": [
+    {
+      "query": "帮我把这个 YouTube 链接的视频加上字幕",
+      "should_load": false,
+      "route_to": "先用 yt-dlp-video-downloader 下载成本地文件，再回本 skill",
+      "reason": "本 skill 只吃本地视频文件，URL 要先下载"
+    },
+    {
+      "query": "帮我把这份 .srt 字幕里的文案改通顺一点",
+      "should_load": false,
+      "route_to": "edit-article / 直接改文本",
+      "reason": "编辑已有字幕文本是文字任务，不是给视频烧字幕"
+    },
+    {
+      "query": "把这段音频转成文字就行，不用做视频",
+      "should_load": false,
+      "route_to": "直接跑 whisper / audio-processor",
+      "reason": "纯转录无烧入无样式，杀鸡用牛刀"
+    },
+    {
+      "query": "帮我把这个视频转成 720p 压缩一下",
+      "should_load": false,
+      "route_to": "format-converter",
+      "reason": "通用视频转码，与字幕无关"
+    },
+    {
+      "query": "给这个视频配一段背景音乐",
+      "should_load": false,
+      "route_to": "format-converter / 音频处理",
+      "reason": "加音轨不是烧字幕"
+    }
+  ]
+}
